@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Concord Consortium - Google Classroom Add-on</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #1a73e8;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .resource-card {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .resource-card:hover {
+      border-color: #1a73e8;
+      box-shadow: 0 2px 8px rgba(26, 115, 232, 0.1);
+    }
+    .resource-card.selected {
+      border-color: #1a73e8;
+      background-color: #e8f0fe;
+    }
+    .resource-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #202124;
+    }
+    .resource-description {
+      color: #5f6368;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .button-container {
+      text-align: center;
+      margin-top: 30px;
+    }
+    button {
+      background-color: #1a73e8;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 0 8px;
+      transition: background-color 0.2s ease;
+    }
+    button:hover {
+      background-color: #1557b0;
+    }
+    button:disabled {
+      background-color: #dadce0;
+      cursor: not-allowed;
+    }
+    .auth-container {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .auth-message {
+      font-size: 18px;
+      color: #5f6368;
+      margin-bottom: 20px;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #5f6368;
+    }
+    .error {
+      color: #d93025;
+      background-color: #fce8e6;
+      padding: 12px;
+      border-radius: 4px;
+      margin: 10px 0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Concord Consortium Resources</h1>
+
+    <div id="loading" class="loading">
+      Loading resources...
+    </div>
+
+    <div id="error-message" class="error" style="display: none;"></div>
+
+    <div id="resource-selector" style="display: none;">
+      <div id="resources-container"></div>
+
+      <div class="button-container">
+        <button id="attach-button" onclick="attachResource()" disabled>
+          Attach to Assignment
+        </button>
+        <button onclick="closeIframe()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Parse URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const courseId = urlParams.get('courseId');
+    const itemId = urlParams.get('itemId');
+    const itemType = urlParams.get('itemType');
+    const addOnToken = urlParams.get('addOnToken');
+    const loginHint = urlParams.get('login_hint');
+
+    // Available resources
+    const resources = [
+      {
+        slug: "ap-launch-demo",
+        title: "Activity Player Demo",
+        description: "Interactive science activities and simulations from the Concord Consortium. Perfect for engaging students in hands-on learning experiences.",
+        iconUrl: null,
+        maxPoints: 100
+      },
+      {
+        slug: "token-debugger",
+        title: "Token Debugger",
+        description: "Developer tool for debugging authentication tokens and session information. Useful for troubleshooting integrations.",
+        iconUrl: null,
+        maxPoints: 0
+      },
+      {
+        slug: "grading-demo",
+        title: "Grading Demo",
+        description: "Demonstration of grade pass-back functionality. Shows how assignments can automatically sync grades to Google Classroom.",
+        iconUrl: null,
+        maxPoints: 100
+      }
+    ];
+
+    let selectedResource = null;
+
+    // Initialize the page
+    function init() {
+      // Since we're protected by middleware, we can directly show the resource selector
+      showResourceSelector();
+    }
+
+
+
+    function showResourceSelector() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('resource-selector').style.display = 'block';
+      renderResources();
+    }
+
+    function showError(message) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error-message').textContent = message;
+      document.getElementById('error-message').style.display = 'block';
+    }
+
+    function renderResources() {
+      const container = document.getElementById('resources-container');
+      container.innerHTML = '';
+
+      resources.forEach(resource => {
+        const card = document.createElement('div');
+        card.className = 'resource-card';
+        card.onclick = () => selectResource(resource);
+
+        card.innerHTML = `
+          <div class="resource-title">${resource.title}</div>
+          <div class="resource-description">${resource.description}</div>
+        `;
+
+        container.appendChild(card);
+      });
+    }
+
+    function selectResource(resource) {
+      // Remove selection from all cards
+      document.querySelectorAll('.resource-card').forEach(card => {
+        card.classList.remove('selected');
+      });
+
+      // Add selection to clicked card
+      event.target.closest('.resource-card').classList.add('selected');
+
+      selectedResource = resource;
+      document.getElementById('attach-button').disabled = false;
+    }
+
+    function attachResource() {
+      if (!selectedResource) return;
+
+      const attachButton = document.getElementById('attach-button');
+      attachButton.disabled = true;
+      attachButton.textContent = 'Creating attachment...';
+
+      // Send resource selection to server with Google Classroom parameters
+      fetch('/google-classroom/select-resource', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resource: selectedResource,
+          courseId: courseId,
+          itemId: itemId,
+          itemType: itemType,
+          addOnToken: addOnToken
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Close the iframe - the attachment has been created in Google Classroom
+          window.parent.postMessage({
+            type: 'Classroom',
+            action: 'closeIframe'
+          }, '*');
+        } else {
+          showError('Failed to attach resource: ' + (data.error || 'Unknown error'));
+          attachButton.disabled = false;
+          attachButton.textContent = 'Attach to Assignment';
+        }
+      })
+      .catch(error => {
+        console.error('Attachment error:', error);
+        showError('Failed to attach resource');
+        attachButton.disabled = false;
+        attachButton.textContent = 'Attach to Assignment';
+      });
+    }
+
+
+
+    function closeIframe() {
+      window.parent.postMessage({
+        type: 'Classroom',
+        action: 'closeIframe'
+      }, '*');
+    }
+
+
+
+    // Initialize when page loads
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>

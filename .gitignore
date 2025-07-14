@@ -1,0 +1,4 @@
+node_modules/
+firebase-configs/
+.env
+certs/
