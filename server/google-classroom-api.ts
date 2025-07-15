@@ -35,8 +35,6 @@ export const addGoogleClassroomApiRoutes = (app: any, oauth2Client: any, classro
       `${publicUrl}/google-classroom/google/callback`
     )
 
-    console.log("client:", client);
-
     console.log('Setting up auth client with tokens:', {
       hasAccessToken: !!authData.tokens?.access_token,
       hasRefreshToken: !!authData.tokens?.refresh_token,

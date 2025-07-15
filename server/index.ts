@@ -7,6 +7,19 @@ import { httpsOptions, publicUrl } from './config'
 
 const start = async () => {
   const app = express();
+
+  // Configure CORS for Activity Player integration
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(200);
+    } else {
+      next();
+    }
+  });
+
   // Configure cookie parser for Google Classroom (required for iframe context)
   app.use(cookieParser());
   usePortalToken(app);
