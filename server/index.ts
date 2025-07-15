@@ -27,18 +27,8 @@ const start = async () => {
 
   server.listen(port, () => {
     console.log(`Server running on https://localhost:${port}`);
-    logEndpoints();
   })
-}
-
-function logEndpoints() {
-  console.log('Available endpoints:')
-  console.log(`Google Classroom Add-on Discovery: ${publicUrl}/google-classroom/addon-discovery`);
-  console.log(`Google Classroom OAuth: ${publicUrl}/google-classroom/oauth/login`);
-  console.log(`Google Classroom Test Page: ${publicUrl}/google-classroom-test.html`);
-
-  console.log(`Homepage: ${publicUrl}`);
-}
+};
 
 start().catch(error => {
   console.error('Failed to start server:', error)

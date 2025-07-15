@@ -123,26 +123,28 @@ export const addGoogleClassroomApiRoutes = (app: any, oauth2Client: any, classro
   app.post('/google-classroom/select-resource', checkGoogleAuth, async (req: any, res: any) => {
     try {
       const authData = getAuthData(req)
-      console.log('Auth Data:', authData)
       if (!authData?.user || !authData?.tokens) {
         return res.status(401).json({ error: 'Unauthorized' })
       }
 
-      const { resource, courseId, itemId, itemType, addOnToken } = req.body
-      console.log('Request body:', req.body);
+      const { resource } = req.body;
+      const { itemId, courseId, itemType, addOnToken } = authData.addon;
+
+      // Validate required parameters
+      if (!resource || !resource.slug) {
+        return res.status(400).json({ error: 'Missing resource information' })
+      }
 
       // Create the attachment URL based on the selected resource
       const attachmentUrl = `${publicUrl}/google-classroom/resource-launch?resource=${resource.slug}`
 
       // Setup OAuth client with user tokens
       const authClient = await setupAuthClient(authData)
-      console.log("Auth client:" , authClient);
       const classroomClient = google.classroom({ version: 'v1', auth: authClient })
 
       // Create the add-on attachment in Google Classroom
       const attachmentBody = {
         title: resource.title,
-        description: resource.description || `Access ${resource.title} from Concord Consortium`,
         studentViewUri: {
           uri: attachmentUrl
         },
@@ -164,16 +166,16 @@ export const addGoogleClassroomApiRoutes = (app: any, oauth2Client: any, classro
         attachmentResponse = await classroomClient.courses.courseWork.addOnAttachments.create({
           courseId: courseId,
           itemId: itemId,
+          addOnToken: addOnToken,
           requestBody: attachmentBody
         })
       } else if (itemType === 'courseWorkMaterial') {
         attachmentResponse = await classroomClient.courses.courseWorkMaterials.addOnAttachments.create({
           courseId: courseId,
           itemId: itemId,
+          addOnToken: addOnToken,
           requestBody: attachmentBody
         })
-      } else {
-        return res.status(400).json({ error: `Unsupported item type: ${itemType}` })
       }
 
       console.log('Attachment created successfully:', attachmentResponse.data)

@@ -5,10 +5,10 @@ import { localJWTSecret } from "../config";
 
 export const usePortalToken = (app) => {
 
-  // rewrite / to /index.html so that the static file is served
+  // Handle root route - redirect to Google Classroom discovery page
   app.use((req, res, next) => {
     if (req.path === '/') {
-      req.url = '/index.html'
+      return res.redirect('/google-classroom/addon-discovery')
     }
     next()
   })

@@ -26,8 +26,35 @@ export const checkGoogleAuth = (req: Request, res: Response, next: NextFunction)
       return redirectToSignin(req, res);
     }
 
-    // Add decoded data to request for use in route handlers
-    req.gcAuth = decoded;
+        // If there are fresh Google Classroom parameters in the URL, update the JWT
+    if (req.query.courseId) {
+      // Strip JWT metadata from decoded payload and create clean payload for re-signing
+      const cleanPayload = {
+        user: decoded.user,
+        tokens: decoded.tokens,
+        addon: {
+          ...decoded.addon,
+          courseId: req.query.courseId as string,
+          itemId: req.query.itemId as string,
+          itemType: req.query.itemType as string,
+          addOnToken: req.query.addOnToken as string,
+          login_hint: req.query.login_hint as string
+        }
+      };
+
+      // Create new JWT with updated parameters (no JWT metadata conflicts)
+      const newToken = jwt.sign(cleanPayload, localJWTSecret, { expiresIn: '7d' });
+      res.cookie('gc-auth', newToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
+      req.gcAuth = cleanPayload;
+    } else {
+      req.gcAuth = decoded;
+    }
 
     return next();
 
@@ -38,19 +65,29 @@ export const checkGoogleAuth = (req: Request, res: Response, next: NextFunction)
 };
 
 function redirectToSignin(req: Request, res: Response) {
-  // Store Google Classroom query parameters in cookies for later use
-  if (req.query.courseId) {
-    const addonParams = { ...req.query };
-    const paramsCookie = jwt.sign(addonParams, localJWTSecret, { expiresIn: '1h' });
-    res.cookie('gc-addon-params', paramsCookie, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none',
-      maxAge: 60 * 60 * 1000 // 1 hour
+  // Redirect to signin page with Google Classroom parameters and correct return URL
+  const queryString = req.url.includes('?') ? req.url.split('?')[1] : '';
+  const originalPath = req.path;
+  const returnUrl = queryString ? `${originalPath}?${queryString}` : originalPath;
+
+  // Build signin URL with both Google Classroom parameters and returnUrl
+  const signinParams = new URLSearchParams();
+
+  // Add Google Classroom parameters if they exist
+  if (queryString) {
+    const urlParams = new URLSearchParams(queryString);
+    urlParams.forEach((value, key) => {
+      if (key !== 'returnUrl') { // Don't duplicate returnUrl
+        signinParams.append(key, value);
+      }
     });
   }
 
-  res.redirect('/google-classroom/signin');
+  // Add the return URL
+  signinParams.append('returnUrl', returnUrl);
+
+  const signinUrl = `/google-classroom/signin?${signinParams.toString()}`;
+  res.redirect(signinUrl);
 }
 
 export default checkGoogleAuth;

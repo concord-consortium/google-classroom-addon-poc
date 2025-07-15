@@ -15,6 +15,39 @@ const oauth2Client = new google.auth.OAuth2(
 // Google Classroom API client
 const classroom = google.classroom({ version: 'v1', auth: oauth2Client })
 
+// Helper function to setup OAuth client with user tokens
+const setupAuthClient = async (sessionData: any) => {
+  const client = new google.auth.OAuth2(
+    googleClientId,
+    googleClientSecret,
+    `${publicUrl}/google-classroom/google/callback`
+  )
+
+  if (!sessionData.tokens?.access_token) {
+    throw new Error('No access token available')
+  }
+
+  client.setCredentials(sessionData.tokens)
+
+  // If token is expired and we have a refresh token, try to refresh
+  if (sessionData.tokens.expiry_date && Date.now() >= sessionData.tokens.expiry_date) {
+    if (sessionData.tokens.refresh_token) {
+      console.log('Token expired, attempting refresh...')
+      try {
+        await client.refreshAccessToken()
+        console.log('Token refreshed successfully')
+      } catch (error) {
+        console.error('Failed to refresh token:', error)
+        throw new Error('Token expired and refresh failed')
+      }
+    } else {
+      throw new Error('Token expired and no refresh token available')
+    }
+  }
+
+  return client
+}
+
 export const setupGoogleClassroom = (app: Express) => {
   // Add Google Classroom API routes
   const { addGoogleClassroomApiRoutes } = require('./google-classroom-api')
@@ -26,25 +59,21 @@ export const setupGoogleClassroom = (app: Express) => {
 
     // OAuth login route (stateless version)
   app.get('/google-classroom/google', (req, res) => {
-    // Store Google Classroom parameters in cookies for later use
-    if (req.query.courseId) {
-      const addonParams = { ...req.query };
-      const paramsCookie = jwt.sign(addonParams, localJWTSecret, { expiresIn: '1h' });
-      res.cookie('gc-addon-params', paramsCookie, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: 60 * 60 * 1000 // 1 hour
-      });
+    const state = {
+      returnUrl: req.query.returnUrl || '/google-classroom/addon-discovery',
+      // Include any Google Classroom parameters that were passed
+      courseId: req.query.courseId,
+      itemId: req.query.itemId,
+      itemType: req.query.itemType,
+      addOnToken: req.query.addOnToken,
+      login_hint: req.query.login_hint
     }
 
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
       scope: googleOAuthScopes,
-      state: JSON.stringify({
-        returnUrl: req.query.returnUrl || '/google-classroom/addon-discovery'
-      })
+      state: JSON.stringify(state)
     })
     res.redirect(authUrl)
   })
@@ -56,6 +85,14 @@ export const setupGoogleClassroom = (app: Express) => {
 
       if (!code) {
         return res.redirect('/google-classroom/failed')
+      }
+
+      // Parse state to get Google Classroom parameters
+      let stateData: any = {}
+      try {
+        stateData = JSON.parse(state as string)
+      } catch (error) {
+        console.error('Failed to parse OAuth state:', error)
       }
 
       // Exchange code for tokens
@@ -94,24 +131,17 @@ export const setupGoogleClassroom = (app: Express) => {
         expiry_date: tokens.expiry_date || undefined
       }
 
-      // Get stored addon parameters from cookie if they exist
-      let addonParams: JwtPayload|string = {};
-      try {
-        const paramsCookie = req.cookies['gc-addon-params'];
-        if (paramsCookie) {
-          addonParams = jwt.verify(paramsCookie, localJWTSecret);
-          // Clear the temporary params cookie
-          res.clearCookie('gc-addon-params');
-        }
-      } catch (error) {
-        console.log('No valid addon params found in cookie');
-      }
-
-      // Create JWT with user data, tokens, and addon params (stateless approach)
+      // Create JWT with user data, tokens, and Google Classroom parameters from state
       const jwtPayload = {
         user,
         tokens: tokenData,
-        addon: addonParams
+        addon: {
+          courseId: stateData.courseId,
+          itemId: stateData.itemId,
+          itemType: stateData.itemType,
+          addOnToken: stateData.addOnToken,
+          login_hint: stateData.login_hint
+        }
       };
 
       const authToken = jwt.sign(jwtPayload, localJWTSecret, { expiresIn: '7d' });
@@ -126,8 +156,9 @@ export const setupGoogleClassroom = (app: Express) => {
 
       console.log('OAuth successful for user:', user.email)
 
-      // Redirect to closepopup page
-      res.redirect('/google-classroom/closepopup')
+      // Build closepopup URL with the correct return URL
+      const returnUrl = stateData.returnUrl || '/google-classroom/addon-discovery';
+      res.redirect(`/google-classroom/closepopup?returnUrl=${encodeURIComponent(returnUrl)}`)
 
     } catch (error) {
       console.error('OAuth callback error:', error)
@@ -141,13 +172,14 @@ export const setupGoogleClassroom = (app: Express) => {
   })
 
   app.get('/google-classroom/closepopup', (req, res) => {
+    const returnUrl = req.query.returnUrl as string || '/google-classroom/addon-discovery';
     res.send(`
       <html>
         <head><title>Authentication Complete</title></head>
         <body>
           <script>
-            // Redirect the opener (iframe) to the addon discovery page
-            window.opener.location.href = '/google-classroom/addon-discovery';
+            // Redirect the opener (iframe) to the correct page
+            window.opener.location.href = '${returnUrl}';
             window.close();
           </script>
           <p>Authentication successful. You can close this window.</p>
@@ -171,6 +203,9 @@ export const setupGoogleClassroom = (app: Express) => {
 
   // Main iframe endpoints
   app.get('/google-classroom/addon-discovery', checkGoogleAuth, (req, res) => {
+    // Log the query parameters for debugging
+    console.log('Add-on discovery accessed with parameters:', req.query);
+    console.log('JWT addon parameters:', req.gcAuth?.addon);
     res.sendFile(require('path').join(__dirname, 'public/google-classroom-discovery.html'))
   })
 
@@ -211,7 +246,98 @@ export const setupGoogleClassroom = (app: Express) => {
           return await googleClassroomLaunchDemo(res, sessionData, resource as string)
 
         case 'token-debugger':
-          return res.send(`<div style="white-space: pre-wrap; font-family: monospace;">${JSON.stringify(sessionData, null, 2)}</div>`)
+          try {
+            let debugData: any = {
+              tokenInfo: sessionData,
+              liveClassroomData: null,
+              error: null
+            }
+
+            // If we have a courseId, fetch live classroom data
+            if (sessionData.courseId) {
+              try {
+                const authClient = await setupAuthClient(sessionData)
+                const classroomClient = google.classroom({ version: 'v1', auth: authClient })
+
+                // Fetch course details
+                const course = await classroomClient.courses.get({ id: sessionData.courseId })
+
+                // Fetch teachers
+                const teachers = await classroomClient.courses.teachers.list({ courseId: sessionData.courseId })
+
+                // Fetch students - using pageSize to ensure we get all students
+                console.log(`Fetching students for course ${sessionData.courseId} as user ${sessionData.user.sub}`)
+                const students = await classroomClient.courses.students.list({
+                  courseId: sessionData.courseId,
+                  pageSize: 1000  // Ensure we get all students in one request
+                })
+                console.log(`Found ${students.data.students?.length || 0} students`)
+
+                let currentUserRole = 'unknown'
+                try {
+                  await classroomClient.courses.teachers.get({ courseId: sessionData.courseId, userId: sessionData.user.sub })
+                  currentUserRole = 'teacher'
+                } catch (teacherError) {
+                  try {
+                    await classroomClient.courses.students.get({ courseId: sessionData.courseId, userId: sessionData.user.sub })
+                    currentUserRole = 'student'
+                  } catch (studentError) {
+                    currentUserRole = 'unknown'
+                    console.log(`User ${sessionData.user.sub} has UNKNOWN role in course ${sessionData.courseId}`)
+                    console.log('Teacher error:', teacherError.message)
+                    console.log('Student error:', studentError.message)
+                  }
+                }
+
+                debugData.liveClassroomData = {
+                  course: {
+                    id: course.data.id,
+                    name: course.data.name,
+                    description: course.data.description,
+                    enrollmentCode: course.data.enrollmentCode,
+                    courseState: course.data.courseState,
+                    creationTime: course.data.creationTime,
+                    updateTime: course.data.updateTime
+                  },
+                  currentUser: {
+                    role: currentUserRole,
+                    email: sessionData.user.email,
+                    name: sessionData.user.displayName
+                  },
+                  roster: {
+                    teacherCount: teachers.data.teachers?.length || 0,
+                    studentCount: students.data.students?.length || 0,
+                    teachers: (teachers.data.teachers || []).map((teacher: any) => ({
+                      userId: teacher.userId,
+                      name: teacher.profile?.name?.fullName || 'Name not available',
+                      email: teacher.profile?.emailAddress || 'Email not available',
+                      photoUrl: teacher.profile?.photoUrl
+                    })),
+                    students: (students.data.students || []).map((student: any) => ({
+                      userId: student.userId,
+                      name: student.profile?.name?.fullName || 'Name not available',
+                      email: student.profile?.emailAddress || 'Email not available',
+                      photoUrl: student.profile?.photoUrl
+                    }))
+                  }
+                }
+              } catch (apiError: any) {
+                debugData.error = `Error fetching live classroom data: ${apiError.message}`
+                console.error('Classroom API error:', apiError)
+              }
+            } else {
+              debugData.error = 'No courseId available - cannot fetch live classroom data'
+            }
+
+            // Return clean JSON
+            return res.json(debugData)
+          } catch (error: any) {
+            console.error('Token debugger error:', error)
+            return res.json({
+              error: error.message,
+              sessionData: sessionData
+            })
+          }
 
         case 'grading-demo':
           return res.send(`

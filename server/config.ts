@@ -27,8 +27,13 @@ export const googleOAuthScopes = [
   'https://www.googleapis.com/auth/userinfo.profile',
   'https://www.googleapis.com/auth/classroom.addons.teacher',
   'https://www.googleapis.com/auth/classroom.addons.student',
+  'https://www.googleapis.com/auth/classroom.courses',
   'https://www.googleapis.com/auth/classroom.courses.readonly',
-  'https://www.googleapis.com/auth/classroom.rosters.readonly'
+  'https://www.googleapis.com/auth/classroom.rosters.readonly',
+  'https://www.googleapis.com/auth/classroom.coursework.me',
+  'https://www.googleapis.com/auth/classroom.courseworkmaterials',
+  'https://www.googleapis.com/auth/classroom.course-work.readonly',
+  'https://www.googleapis.com/auth/classroom.coursework.students',
 ]
 
 // HTTPS configuration for local development
