@@ -209,22 +209,6 @@ export const setupGoogleClassroom = (app: Express) => {
     res.sendFile(require('path').join(__dirname, 'public/google-classroom-discovery.html'))
   })
 
-  app.get('/google-classroom/teacher-view', (req, res) => {
-    res.sendFile(require('path').join(__dirname, 'public/google-classroom-teacher.html'))
-  })
-
-  app.get('/google-classroom/student-view', (req, res) => {
-    res.sendFile(require('path').join(__dirname, 'public/google-classroom-student.html'))
-  })
-
-  app.get('/google-classroom/student-work-review', (req, res) => {
-    res.sendFile(require('path').join(__dirname, 'public/google-classroom-student-work-review.html'))
-  })
-
-  app.get('/google-classroom/link-upgrade', (req, res) => {
-    res.sendFile(require('path').join(__dirname, 'public/google-classroom-link-upgrade.html'))
-  })
-
   // Resource launch endpoint
   app.get('/google-classroom/resource-launch', checkGoogleAuth, async (req, res) => {
     try {

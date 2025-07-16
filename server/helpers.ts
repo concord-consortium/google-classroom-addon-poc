@@ -1,35 +1,5 @@
 import { createHash } from "crypto";
 
-export const arrayIncludesSubstring = (array: string[], substring: string) => {
-  return array.some(item => item.includes(substring));
-}
-
-export type GetUserTypeOptions = {
-  treatAdministratorAsLearner?: boolean;
-}
-export const getUserType = (decodedToken: any, options: GetUserTypeOptions = {}) => {
-  if (arrayIncludesSubstring(decodedToken.platformContext?.roles ?? [], '#Administrator')) {
-    if (options.treatAdministratorAsLearner) {
-      return 'learner';
-    }
-    return 'administrator';
-  }
-  if (arrayIncludesSubstring(decodedToken.platformContext?.roles ?? [], '#Instructor')) {
-    return 'teacher';
-  }
-  if (arrayIncludesSubstring(decodedToken.platformContext?.roles ?? [], '#Learner')) {
-    return 'learner';
-  }
-  return 'user';
-}
-
-export const ensureTrailingSlash = (url: string) => {
-  if (url.endsWith('/')) {
-    return url;
-  }
-  return `${url}/`;
-}
-
 export const computeClassHash = (s: string) => {
   return createHash("sha256").update(s).digest("hex").slice(0, 48);
 }
